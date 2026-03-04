@@ -1,0 +1,2 @@
+# stack-nginx
+Nginx deployment.
