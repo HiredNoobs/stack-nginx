@@ -26,7 +26,7 @@ function command_nginx_refresh_certs {
 function run_nginx_refresh_certs {
   local node container_id
 
-  for node in $ACME_PRIMARY_NODES $ACME_SECONDARY_NODES; do
+  for node in $ACME_PRIMARY_FQDN_NODES $ACME_SECONDARY_FQDN_NODES; do
     container_id=$(docker -H "ssh://$node" ps --filter "name=${STACK}_.*_acme" --filter status=running -q)
 
     if [[ -z "$container_id" ]]; then
