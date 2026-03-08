@@ -11,6 +11,42 @@ function check_stack_context {
   fi
 }
 
+function build_configs {
+  local svc proxy_host_outdir
+
+  log_info "Generating main Nginx config..."
+  envsubst < "$CONFIGS/nginx.conf.tmpl" > "$CONFIGS/nginx.conf"
+
+  proxy_host_outdir="$CONFIGS/proxy_host"
+  mkdir -p "$proxy_host_outdir"
+
+  log_info "Generating proxy_host configs..."
+  for svc in "${NGINX_SERVICES[@]}"; do
+    SERVICE_DOMAIN=$(echo "$svc" | cut -d: -f1)
+    UPSTREAM_IP=$(echo "$svc" | cut -d: -f2)
+    UPSTREAM_PORT=$(echo "$svc" | cut -d: -f3)
+
+    export SERVICE_DOMAIN UPSTREAM_IP UPSTREAM_PORT
+
+    envsubst < "$CONFIGS/service.conf.tmpl" > "$proxy_host_outdir/$SERVICE_DOMAIN.conf"
+
+    unset SERVICE_DOMAIN UPSTREAM_IP UPSTREAM_PORT
+  done
+
+  log_info "Generating proxy_host configs with websockets enabled..."
+  for svc in "${NGINX_WS_SERVICES[@]}"; do
+    SERVICE_DOMAIN=$(echo "$svc" | cut -d: -f1)
+    UPSTREAM_IP=$(echo "$svc" | cut -d: -f2)
+    UPSTREAM_PORT=$(echo "$svc" | cut -d: -f3)
+
+    export SERVICE_DOMAIN UPSTREAM_IP UPSTREAM_PORT
+
+    envsubst < "$CONFIGS/ws_service.conf.tmpl" > "$proxy_host_outdir/$SERVICE_DOMAIN.conf"
+
+    unset SERVICE_DOMAIN UPSTREAM_IP UPSTREAM_PORT
+  done
+}
+
 # -----------------------------------------------------
 # Commands
 # -----------------------------------------------------
@@ -23,6 +59,11 @@ function command_acme_refresh_certs {
 function command_acme_deploy_certs {
   discover_stack_context
   run_acme_deploy_certs
+}
+
+function command_nginx_sync_proxy_confs {
+  discover_stack_context
+  run_nginx_sync_proxy_confs
 }
 
 # -----------------------------------------------------
@@ -59,6 +100,28 @@ function run_acme_deploy_certs {
 
     log_info "Creating certs on $node."
     docker -H "ssh://$node" exec "$container_id" acme.sh --deploy -d "*.$DOMAIN" --deploy-hook docker
+  done
+}
+
+function run_nginx_sync_proxy_confs {
+  local src_dir dst_dir node
+  src_dir="$CONFIGS/proxy_host/"
+  dst_dir="/etc/nginx/conf.d/proxy_host/"
+
+  for node in $NGINX_FQDN_NODES; do
+    log_info "Syncing config with $node."
+    ssh "$node" "sudo mkdir -p $dst_dir"
+    rsync -avz --delete "$src_dir" "$node:$dst_dir"
+
+    container_id=$(docker -H "ssh://$node" ps --filter "name=${STACK}_.*_nginx" --filter status=running -q)
+
+    if [[ -z "$container_id" ]]; then
+      log_info "Couldn't find container ID on $node."
+      continue
+    fi
+
+    log_info "Reloading Nginx config..."
+    docker -H "ssh://$node" kill -s HUP
   done
 }
 
@@ -108,6 +171,8 @@ function stack_check_env {
 }
 
 function stack_discover {
+  export NGINX_FQDN_NODES="$NGINX_PRIMARY_FQDN_NODES $NGINX_SECONDARY_FQDN_NODES"
+
   export NGINX_PRIMARY_REPLICAS=$(count "$NGINX_PRIMARY_NODES")
   export ACME_PRIMARY_REPLICAS=$(count "$ACME_PRIMARY_NODES")
 
@@ -157,4 +222,7 @@ function stack_deploy {
       -c secondary.yml \
       "${STACK}_secondary"
   fi
+
+  log_info "Syncing config to all nodes"
+  run_nginx_sync_proxy_confs
 }

@@ -7,10 +7,18 @@ services:
         published: $NGINX_TLS_PORT
         target: $NGINX_TLS_PORT
         protocol: tcp
+    configs:
+      - source: nginx_conf
+        target: /etc/nginx/nginx.conf
     volumes:
       - nginx_certs:/etc/nginx/ssl
+      - /etc/nginx/conf.d/proxy_host:/etc/nginx/conf.d/proxy_host:ro
     labels:
       - sh.acme.autoload.domain=$DOMAIN
+
+configs:
+  nginx_conf:
+    file: $CONFIGS/nginx.conf
 
 volumes:
   nginx_certs:
