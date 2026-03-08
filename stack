@@ -58,7 +58,7 @@ function run_acme_deploy_certs {
     fi
 
     log_info "Creating certs on $node."
-    docker -H "ssh://$node" exec "$container_id" acme.sh --deploy -d "$DOMAIN" --deploy-hook docker
+    docker -H "ssh://$node" exec "$container_id" acme.sh --deploy -d "*.$DOMAIN" --deploy-hook docker
   done
 }
 
