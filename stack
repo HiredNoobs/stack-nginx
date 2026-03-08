@@ -15,7 +15,7 @@ function build_configs {
   local svc proxy_host_outdir
 
   log_info "Generating main Nginx config..."
-  envsubst < "$CONFIGS/nginx.conf.tmpl" > "$CONFIGS/nginx.conf"
+  envsubst '$DOMAIN' < "$CONFIGS/nginx.conf.tmpl" > "$CONFIGS/nginx.conf"
 
   proxy_host_outdir="$CONFIGS/proxy_host"
   mkdir -p "$proxy_host_outdir"
@@ -28,7 +28,7 @@ function build_configs {
 
     export SERVICE_DOMAIN UPSTREAM_IP UPSTREAM_PORT
 
-    envsubst < "$CONFIGS/service.conf.tmpl" > "$proxy_host_outdir/$SERVICE_DOMAIN.conf"
+    envsubst '$SERVICE_DOMAIN $DOMAIN $UPSTREAM_IP $UPSTREAM_PORT' < "$CONFIGS/service.conf.tmpl" > "$proxy_host_outdir/$SERVICE_DOMAIN.conf"
 
     unset SERVICE_DOMAIN UPSTREAM_IP UPSTREAM_PORT
   done
@@ -41,7 +41,7 @@ function build_configs {
 
     export SERVICE_DOMAIN UPSTREAM_IP UPSTREAM_PORT
 
-    envsubst < "$CONFIGS/ws_service.conf.tmpl" > "$proxy_host_outdir/$SERVICE_DOMAIN.conf"
+    envsubst '$SERVICE_DOMAIN $DOMAIN $UPSTREAM_IP $UPSTREAM_PORT' < "$CONFIGS/ws_service.conf.tmpl" > "$proxy_host_outdir/$SERVICE_DOMAIN.conf"
 
     unset SERVICE_DOMAIN UPSTREAM_IP UPSTREAM_PORT
   done
