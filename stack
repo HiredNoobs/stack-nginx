@@ -77,7 +77,7 @@ function run_acme_refresh_certs {
     container_id=$(docker -H "ssh://$node" ps --filter "name=${STACK}_.*_acme" --filter status=running -q)
 
     if [[ -z "$container_id" ]]; then
-      log_info "Couldn't find container ID on $node."
+      log_warning "Couldn't find container ID on $node."
       continue
     fi
 
@@ -94,7 +94,7 @@ function run_acme_deploy_certs {
     container_id=$(docker -H "ssh://$node" ps --filter "name=${STACK}_.*_acme" --filter status=running -q)
 
     if [[ -z "$container_id" ]]; then
-      log_info "Couldn't find container ID on $node."
+      log_warning "Couldn't find container ID on $node."
       continue
     fi
 
@@ -116,7 +116,7 @@ function run_nginx_sync_proxy_confs {
     container_id=$(docker -H "ssh://$node" ps --filter "name=${STACK}_.*_nginx" --filter status=running -q)
 
     if [[ -z "$container_id" ]]; then
-      log_info "Couldn't find container ID on $node."
+      log_warning "Couldn't find container ID on $node."
       continue
     fi
 
@@ -203,6 +203,10 @@ function stack_env {
 function stack_deploy {
   check_stack_context
 
+  log_info "Building and syncing config to all nodes"
+  build_configs
+  run_nginx_sync_proxy_confs
+
   log_info "Checking if primary and/or secondary need to be deployed..."
 
   if ! docker stack ps "${STACK}_primary" >/dev/null 2>&1; then
@@ -222,7 +226,4 @@ function stack_deploy {
       -c secondary.yml \
       "${STACK}_secondary"
   fi
-
-  log_info "Syncing config to all nodes"
-  run_nginx_sync_proxy_confs
 }
