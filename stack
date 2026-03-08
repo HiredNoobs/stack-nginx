@@ -18,6 +18,7 @@ function build_configs {
   envsubst '$DOMAIN' < "$CONFIGS/nginx.conf.tmpl" > "$CONFIGS/nginx.conf"
 
   proxy_host_outdir="$CONFIGS/proxy_host"
+  rm -rf proxy_host_outdir
   mkdir -p "$proxy_host_outdir"
 
   log_info "Generating proxy_host configs..."
