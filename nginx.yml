@@ -9,6 +9,8 @@ services:
         protocol: tcp
     volumes:
       - nginx_certs:/etc/nginx/ssl
+    labels:
+      - sh.acme.autoload.domain=$DOMAIN
 
 volumes:
   nginx_certs:

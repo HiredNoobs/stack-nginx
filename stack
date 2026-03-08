@@ -37,7 +37,7 @@ function run_nginx_refresh_certs {
 
     log_info "Creating certs on $node."
     docker -H "ssh://$node" exec "$container_id" acme.sh --issue -d "*.$DOMAIN" --dns dns_cf \
-      --server letsencrypt --reloadcmd "docker ps --filter name=${STACK}_nginx_primary -q | xargs -r docker kill -s HUP"
+      --server letsencrypt --deploy-hook docker
   done
 }
 
