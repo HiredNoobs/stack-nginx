@@ -4,7 +4,9 @@ services:
     image: $ACME_IMAGE
     volumes:
       - nginx_certs:/acme.sh
-      - /var/run/docker.sock:/var/run/docker.sock  # For refreshing Nginx container
+      # For refreshing Nginx container
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/docker:/usr/bin/docker
     environment:
       CF_Token: $CLOUDFLARE_API_TOKEN
       CF_Email: $CLOUDFLARE_EMAIL
