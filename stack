@@ -15,16 +15,21 @@ function check_stack_context {
 # Commands
 # -----------------------------------------------------
 
-function command_nginx_refresh_certs {
+function command_acme_refresh_certs {
   discover_stack_context
-  run_nginx_refresh_certs
+  run_acme_refresh_certs
+}
+
+function command_acme_deploy_certs {
+  discover_stack_context
+  run_acme_deploy_certs
 }
 
 # -----------------------------------------------------
 # Nginx functions
 # -----------------------------------------------------
 
-function run_nginx_refresh_certs {
+function run_acme_refresh_certs {
   local node container_id
 
   for node in $ACME_PRIMARY_FQDN_NODES $ACME_SECONDARY_FQDN_NODES; do
@@ -38,6 +43,22 @@ function run_nginx_refresh_certs {
     log_info "Creating certs on $node."
     docker -H "ssh://$node" exec "$container_id" acme.sh --issue -d "*.$DOMAIN" --dns dns_cf \
       --server letsencrypt --deploy-hook docker
+  done
+}
+
+function run_acme_deploy_certs {
+  local node container_id
+
+    for node in $ACME_PRIMARY_FQDN_NODES $ACME_SECONDARY_FQDN_NODES; do
+    container_id=$(docker -H "ssh://$node" ps --filter "name=${STACK}_.*_acme" --filter status=running -q)
+
+    if [[ -z "$container_id" ]]; then
+      log_info "Couldn't find container ID on $node."
+      continue
+    fi
+
+    log_info "Creating certs on $node."
+    docker -H "ssh://$node" exec "$container_id" acme.sh --deploy -d "$DOMAIN" --deploy-hook docker
   done
 }
 
