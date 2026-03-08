@@ -16,6 +16,7 @@ function check_stack_context {
 # -----------------------------------------------------
 
 function command_nginx_refresh_certs {
+  discover_stack_context
   run_nginx_refresh_certs
 }
 
@@ -34,6 +35,7 @@ function run_nginx_refresh_certs {
       continue
     fi
 
+    log_info "Creating certs on $node."
     docker -H "ssh://$node" exec "$container_id" acme.sh --issue -d "*.$DOMAIN" --dns dns_cf \
       --server letsencrypt --reloadcmd "docker ps --filter name=${STACK}_nginx_primary -q | xargs -r docker kill -s HUP"
   done
