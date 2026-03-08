@@ -12,6 +12,34 @@ function check_stack_context {
 }
 
 # -----------------------------------------------------
+# Commands
+# -----------------------------------------------------
+
+function command_nginx_refresh_certs {
+  run_nginx_refresh_certs
+}
+
+# -----------------------------------------------------
+# Nginx functions
+# -----------------------------------------------------
+
+function run_nginx_refresh_certs {
+  local node container_id
+
+  for node in $ACME_PRIMARY_NODES $ACME_SECONDARY_NODES; do
+    container_id=$(docker -H "ssh://$node" ps --filter "name=${STACK}_.*_acme" --filter status=running -q)
+
+    if [[ -z "$container_id" ]]; then
+      log_info "Couldn't find container ID on $node."
+      continue
+    fi
+
+    docker -H "ssh://$node" exec "$container_id" acme.sh --issue -d "*.$DOMAIN" --dns dns_cf \
+      --server letsencrypt --reloadcmd "docker ps --filter name=${STACK}_nginx_primary -q | xargs -r docker kill -s HUP"
+  done
+}
+
+# -----------------------------------------------------
 # Override functions
 # -----------------------------------------------------
 

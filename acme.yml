@@ -8,9 +8,4 @@ services:
     environment:
       CF_Token: $CLOUDFLARE_API_TOKEN
       CF_Email: $CLOUDFLARE_EMAIL
-    command: >
-      daemon
-      --dns dns_cf
-      --server letsencrypt
-      --domain $DOMAIN
-      --reloadcmd "docker ps --filter name=${STACK}_nginx_primary -q | xargs -r docker kill -s HUP"
+    command: daemon
