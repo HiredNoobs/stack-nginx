@@ -21,7 +21,7 @@ function build_configs {
   mkdir -p "$proxy_host_outdir"
 
   log_info "Generating proxy_host configs..."
-  for svc in "${NGINX_SERVICES[@]}"; do
+  for svc in $NGINX_SERVICES; do
     SERVICE_DOMAIN=$(echo "$svc" | cut -d: -f1)
     UPSTREAM_IP=$(echo "$svc" | cut -d: -f2)
     UPSTREAM_PORT=$(echo "$svc" | cut -d: -f3)
@@ -34,7 +34,7 @@ function build_configs {
   done
 
   log_info "Generating proxy_host configs with websockets enabled..."
-  for svc in "${NGINX_WS_SERVICES[@]}"; do
+  for svc in $NGINX_WS_SERVICES; do
     SERVICE_DOMAIN=$(echo "$svc" | cut -d: -f1)
     UPSTREAM_IP=$(echo "$svc" | cut -d: -f2)
     UPSTREAM_PORT=$(echo "$svc" | cut -d: -f3)
