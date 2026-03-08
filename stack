@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+
+# -----------------------------------------------------
+# Helper functions
+# -----------------------------------------------------
+
+function check_stack_context {
+  if [[ -z "${CLOUDFLARE_EMAIL:-}" || -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
+    log_error "Cloudflare details aren't set in 'secrets.env'."
+    exit 1
+  fi
+}
+
+# -----------------------------------------------------
+# Override functions
+# -----------------------------------------------------
+
+function run_clean {
+  local primary_confirm secondary_confirm
+
+  log_info "'clean' has been overriden by stack."
+
+  if docker stack ps "${STACK}_primary"; then
+    read -r -p "Teardown primary? [yes/N]: " primary_confirm
+    if [[ "$primary_confirm" == "yes" ]]; then
+      docker stack rm "${STACK}_primary" --detach=false
+    fi
+  fi
+
+  if docker stack ps "${STACK}_secondary"; then
+    read -r -p "Teardown secondary? [yes/N]: " secondary_confirm
+    if [[ "$secondary_confirm" == "yes" ]]; then
+      docker stack rm "${STACK}_secondary" --detach=false
+    fi
+  fi
+}
+
+function run_status {
+  log_info "'status' has been overriden by stack."
+
+  log_info "Getting primary status."
+  docker stack ps "${STACK}_primary"
+
+  log_info "Getting secondary status."
+  docker stack ps "${STACK}_secondary"
+}
+
+# -----------------------------------------------------
+# Stack functions
+# -----------------------------------------------------
+
+function stack_check_env {
+  if [ ! -d "$SECRETS" ]; then
+    echo "Configs or secrets directory are missing from '$ENVIRONMENT_BASE'."
+    exit 1
+  fi
+}
+
+function stack_discover {
+  export NGINX_PRIMARY_REPLICAS=$(count "$NGINX_PRIMARY_NODES")
+  export ACME_PRIMARY_REPLICAS=$(count "$ACME_PRIMARY_NODES")
+
+  export NGINX_SECONDARY_REPLICAS=$(count "$NGINX_SECONDARY_NODES")
+  export ACME_SECONDARY_REPLICAS=$(count "$ACME_SECONDARY_NODES")
+}
+
+function stack_env {
+  echo
+  echo "NGINX IMAGE           = $NGINX_IMAGE"
+  echo "NGINX PRIMARY NODES   = ($NGINX_PRIMARY_REPLICAS)"
+  list "$NGINX_PRIMARY_NODES"
+  echo
+  echo "NGINX_SECONDARY_NODES = ($NGINX_SECONDARY_REPLICAS)"
+  list "$NGINX_SECONDARY_NODES"
+  echo
+  echo "NGINX TLS PORT        = $NGINX_TLS_PORT"
+  echo
+  echo "ACME IMAGE = $ACME_IMAGE"
+  echo "ACME PRIMARY NODES    = ($ACME_PRIMARY_REPLICAS)"
+  list "$ACME_PRIMARY_NODES"
+  echo
+  echo "ACME SECONDARY NODES  = ($ACME_SECONDARY_REPLICAS)"
+  list "$ACME_SECONDARY_NODES"
+  echo
+}
+
+function stack_deploy {
+  check_stack_context
+
+  log_info "Checking if primary and/or secondary need to be deployed..."
+
+  if ! docker stack ps "${STACK}_primary" >/dev/null 2>&1; then
+    log_info "Deploying primary."
+    docker stack deploy --detach=true \
+      -c nginx.yml \
+      -c acme.yml \
+      -c primary.yml \
+      "${STACK}_primary"
+  fi
+
+  if ! docker stack ps "${STACK}_secondary" >/dev/null 2>&1; then
+    log_info "Deploying secondary."
+    docker stack deploy --detach=true \
+      -c nginx.yml \
+      -c acme.yml \
+      -c secondary.yml \
+      "${STACK}_secondary"
+  fi
+}

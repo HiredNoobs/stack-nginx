@@ -1,0 +1,16 @@
+services:
+  acme:
+    hostname: acme{{.Task.Slot}}
+    image: $ACME_IMAGE
+    volumes:
+      - nginx_certs:/acme.sh
+      - /var/run/docker.sock:/var/run/docker.sock  # For refreshing Nginx container
+    environment:
+      CF_Token: $CLOUDFLARE_API_TOKEN
+      CF_Email: $CLOUDFLARE_EMAIL
+    command: >
+      daemon
+      --dns dns_cf
+      --server letsencrypt
+      --domain $DOMAIN
+      --reloadcmd "docker ps --filter name=${STACK}_nginx_primary -q | xargs -r docker kill -s HUP"

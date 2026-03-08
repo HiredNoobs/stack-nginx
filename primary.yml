@@ -1,0 +1,17 @@
+services:
+  nginx:
+    deploy:
+      mode: replicated
+      replicas: $NGINX_PRIMARY_REPLICAS
+      placement:
+        max_replicas_per_node: 1
+        constraints:
+          - node.labels.${STACK}_nginx_primary == 1
+  acme:
+    deploy:
+      mode: replicated
+      replicas: $ACME_PRIMARY_REPLICAS
+      placement:
+        max_replicas_per_node: 1
+        constraints:
+          - node.labels.${STACK}_acme_primary == 1

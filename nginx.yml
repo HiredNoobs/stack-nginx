@@ -1,0 +1,14 @@
+services:
+  nginx:
+    hostname: nginx{{.Task.Slot}}
+    image: $NGINX_IMAGE
+    ports:
+      - mode: host
+        published: $NGINX_TLS_PORT
+        target: $NGINX_TLS_PORT
+        protocol: tcp
+    volumes:
+      - nginx_certs:/etc/nginx/ssl
+
+volumes:
+  nginx_certs:
