@@ -111,12 +111,13 @@ function run_nginx_sync_proxy_confs {
   for node in $NGINX_FQDN_NODES; do
     log_info "Syncing config with $node."
     ssh "$node" "sudo mkdir -p $dst_dir"
-    rsync -avz --delete "$src_dir" "$node:$dst_dir"
+    rsync -avz --delete --rsync-path="sudo rsync" "$src_dir" "$node:$dst_dir"
 
     container_id=$(docker -H "ssh://$node" ps --filter "name=${STACK}_.*_nginx" --filter status=running -q)
 
+    # No warning as this runs during every deploy
+    # so it's often expected that nothing is running...
     if [[ -z "$container_id" ]]; then
-      log_warning "Couldn't find container ID on $node."
       continue
     fi
 
