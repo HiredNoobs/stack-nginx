@@ -23,26 +23,28 @@ function build_configs {
 
   log_info "Generating proxy_host configs..."
   for svc in $NGINX_SERVICES; do
-    SERVICE_DOMAIN=$(echo "$svc" | cut -d: -f1)
-    UPSTREAM_IP=$(echo "$svc" | cut -d: -f2)
-    UPSTREAM_PORT=$(echo "$svc" | cut -d: -f3)
+    UPSTREAM_SCHEME=$(echo "$svc" | cut -d: -f1)
+    SERVICE_DOMAIN=$(echo "$svc" | cut -d: -f2)
+    UPSTREAM_IP=$(echo "$svc" | cut -d: -f3)
+    UPSTREAM_PORT=$(echo "$svc" | cut -d: -f4)
 
-    export SERVICE_DOMAIN UPSTREAM_IP UPSTREAM_PORT
+    export UPSTREAM_SCHEME SERVICE_DOMAIN UPSTREAM_IP UPSTREAM_PORT
 
-    envsubst '$SERVICE_DOMAIN $DOMAIN $UPSTREAM_IP $UPSTREAM_PORT' < "$CONFIGS/service.conf.tmpl" > "$proxy_host_outdir/$SERVICE_DOMAIN.conf"
+    envsubst '$UPSTREAM_SCHEME $SERVICE_DOMAIN $DOMAIN $UPSTREAM_IP $UPSTREAM_PORT' < "$CONFIGS/service.conf.tmpl" > "$proxy_host_outdir/$SERVICE_DOMAIN.conf"
 
     unset SERVICE_DOMAIN UPSTREAM_IP UPSTREAM_PORT
   done
 
   log_info "Generating proxy_host configs with websockets enabled..."
   for svc in $NGINX_WS_SERVICES; do
-    SERVICE_DOMAIN=$(echo "$svc" | cut -d: -f1)
-    UPSTREAM_IP=$(echo "$svc" | cut -d: -f2)
-    UPSTREAM_PORT=$(echo "$svc" | cut -d: -f3)
+    UPSTREAM_SCHEME=$(echo "$svc" | cut -d: -f1)
+    SERVICE_DOMAIN=$(echo "$svc" | cut -d: -f2)
+    UPSTREAM_IP=$(echo "$svc" | cut -d: -f3)
+    UPSTREAM_PORT=$(echo "$svc" | cut -d: -f4)
 
-    export SERVICE_DOMAIN UPSTREAM_IP UPSTREAM_PORT
+    export UPSTREAM_SCHEME SERVICE_DOMAIN UPSTREAM_IP UPSTREAM_PORT
 
-    envsubst '$SERVICE_DOMAIN $DOMAIN $UPSTREAM_IP $UPSTREAM_PORT' < "$CONFIGS/ws_service.conf.tmpl" > "$proxy_host_outdir/$SERVICE_DOMAIN.conf"
+    envsubst '$UPSTREAM_SCHEME $SERVICE_DOMAIN $DOMAIN $UPSTREAM_IP $UPSTREAM_PORT' < "$CONFIGS/ws_service.conf.tmpl" > "$proxy_host_outdir/$SERVICE_DOMAIN.conf"
 
     unset SERVICE_DOMAIN UPSTREAM_IP UPSTREAM_PORT
   done

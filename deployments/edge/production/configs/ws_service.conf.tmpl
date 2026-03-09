@@ -17,7 +17,7 @@ server {
     error_log  syslog:server=rsyslog.${DOMAIN},tag=${SERVICE_DOMAIN},severity=debug;
 
     location / {
-        proxy_pass http://${UPSTREAM_IP}:${UPSTREAM_PORT};
+        proxy_pass ${UPSTREAM_SCHEME}://${UPSTREAM_IP}:${UPSTREAM_PORT};
 
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
