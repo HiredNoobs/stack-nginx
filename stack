@@ -125,7 +125,7 @@ function run_nginx_sync_proxy_confs {
     fi
 
     log_info "Reloading Nginx config..."
-    docker -H "ssh://$node" kill -s HUP
+    docker -H "ssh://$node" kill -s HUP "$container_id"
   done
 }
 
