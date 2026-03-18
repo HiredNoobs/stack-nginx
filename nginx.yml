@@ -10,6 +10,8 @@ services:
     configs:
       - source: nginx_conf
         target: /etc/nginx/nginx.conf
+      - source: logs_conf
+        target: /etc/nginx/conf.d/logs.conf
     volumes:
       - nginx_certs:/etc/nginx/ssl
       - /etc/nginx/conf.d/proxy_host:/etc/nginx/conf.d/proxy_host:ro
@@ -19,6 +21,8 @@ services:
 configs:
   nginx_conf:
     file: $CONFIGS/nginx.conf
+  logs_conf:
+    file: $CONFIGS/logs.conf
 
 volumes:
   nginx_certs:

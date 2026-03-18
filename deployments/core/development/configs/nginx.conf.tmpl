@@ -9,14 +9,13 @@ http {
     include       mime.types;
     default_type  application/octet-stream;
 
+    include /etc/nginx/conf.d/logs.conf;
+
     sendfile on;
     tcp_nopush on;
     tcp_nodelay on;
 
     keepalive_timeout 65;
-
-    access_log /var/log/nginx/access.log;
-    error_log  /var/log/nginx/error.log;
 
     gzip on;
     gzip_types text/plain text/css application/json application/javascript application/xml;
@@ -32,6 +31,9 @@ http {
 
         ssl_certificate     /etc/nginx/ssl/*.${DOMAIN}_ecc/fullchain.cer;
         ssl_certificate_key /etc/nginx/ssl/*.${DOMAIN}_ecc/*.${DOMAIN}.key;
+
+        access_log syslog:server=rsyslog.${DOMAIN},tag=default,severity=info json;
+        error_log  syslog:server=rsyslog.${DOMAIN},tag=default,severity=info;
 
         location = /health {
             access_log off;
