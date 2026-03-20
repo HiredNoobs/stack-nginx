@@ -13,6 +13,7 @@ services:
       - source: logs_conf
         target: /etc/nginx/conf.d/logs.conf
     volumes:
+      - /var/log/nginx:/var/log/nginx
       - nginx_certs:/etc/nginx/ssl
       - /etc/nginx/conf.d/proxy_host:/etc/nginx/conf.d/proxy_host:ro
     labels:
