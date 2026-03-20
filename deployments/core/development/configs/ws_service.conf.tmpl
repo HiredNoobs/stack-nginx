@@ -13,6 +13,7 @@ server {
     ssl_certificate     /etc/nginx/ssl/*.${DOMAIN}_ecc/fullchain.cer;
     ssl_certificate_key /etc/nginx/ssl/*.${DOMAIN}_ecc/*.${DOMAIN}.key;
 
+    access_log /var/log/nginx/fail2ban.log fail2ban;
     access_log syslog:server=rsyslog.${DOMAIN},tag=${SERVICE_DOMAIN},severity=info json;
     error_log  syslog:server=rsyslog.${DOMAIN},tag=${SERVICE_DOMAIN},severity=info;
 
