@@ -168,7 +168,7 @@ function run_status {
 # -----------------------------------------------------
 
 function stack_check_env {
-  if [ ! -d "$SECRETS" ]; then
+  if [ ! -d "$CONFIGS" ] || [ ! -d "$SECRETS" ]; then
     echo "Configs or secrets directory are missing from '$ENVIRONMENT_BASE'."
     exit 1
   fi
