@@ -1,0 +1,104 @@
+# One replica per node labelled ${STACK}_nginx. Config changes restart the pods one at a time,
+# certificate renewals are picked up with a reload (reload-on-cert-change.sh).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  labels:
+    app.kubernetes.io/name: nginx
+spec:
+  replicas: ${NGINX_REPLICAS}
+  # With one replica per node there's nowhere for an extra pod to go during an update,
+  # so replace them in place.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nginx
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nginx
+      annotations:
+        checksum/config: "${NGINX_CONFIG_CHECKSUM}"
+    spec:
+      nodeSelector:
+        ${STACK}_nginx: ""
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: nginx
+              topologyKey: kubernetes.io/hostname
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: nginx
+      containers:
+        - name: nginx
+          image: ${NGINX_IMAGE}
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+            - name: https
+              containerPort: 443
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: https
+              scheme: HTTPS
+            periodSeconds: 5
+            failureThreshold: 2
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: https
+              scheme: HTTPS
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          volumeMounts:
+            # Copied into /etc/nginx by render-config.sh
+            - name: config
+              mountPath: /etc/nginx-k8s/config
+              readOnly: true
+            - name: proxy-hosts
+              mountPath: /etc/nginx-k8s/proxy_host
+              readOnly: true
+            - name: config
+              mountPath: /docker-entrypoint.d/20-render-config.sh
+              subPath: render-config.sh
+              readOnly: true
+            - name: config
+              mountPath: /docker-entrypoint.d/90-reload-on-cert-change.sh
+              subPath: reload-on-cert-change.sh
+              readOnly: true
+            - name: tls
+              mountPath: /etc/nginx/ssl
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: nginx-config
+            defaultMode: 0755
+        - name: proxy-hosts
+          configMap:
+            name: nginx-proxy-hosts
+        # From cert-manager, or a self-signed placeholder until it's available.
+        - name: tls
+          secret:
+            secretName: nginx-tls

@@ -1,166 +1,140 @@
 #!/usr/bin/env bash
+#
+# Nginx reverse proxy. A Deployment with one replica per labelled node behind a kube-vip
+# LoadBalancer IP, with a wildcard cert from cert-manager.
+
+# Variables substituted in k8s/*.yaml, anything else is left alone.
+K8S_TEMPLATE_VARS='$STACK $DOMAIN $NGINX_IMAGE $NGINX_REPLICAS $NGINX_LB_IP $NGINX_CONFIG_CHECKSUM $ACME_SERVER $ACME_EMAIL'
 
 # -----------------------------------------------------
 # Helper functions
 # -----------------------------------------------------
 
 function check_stack_context {
-  if [[ -z "${CLOUDFLARE_EMAIL:-}" || -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
-    log_error "Cloudflare details aren't set in 'secrets.env'."
-    exit 1
+  if [[ -z "${NGINX_LB_IP:-}" ]]; then
+    log_warning "NGINX_LB_IP isn't set, nginx will only be reachable inside the cluster."
   fi
 }
 
+# The certificate needs cert-manager (stack-cert-manager) and a Cloudflare token.
+function can_issue_cert {
+  if [[ -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
+    log_warning "CLOUDFLARE_API_TOKEN isn't set in 'secrets.env', skipping the certificate."
+    return 1
+  fi
+
+  if ! kubectl get crd certificates.cert-manager.io > /dev/null 2>&1; then
+    log_warning "cert-manager isn't installed, skipping the certificate."
+    return 1
+  fi
+}
+
+# Lets nginx start before cert-manager has issued a cert. cert-manager replaces it once the
+# Certificate is deployed and pods pick it up with a reload.
+function placeholder_cert {
+  local outdir
+
+  if kubectl get secret nginx-tls --namespace "$K8S_NAMESPACE" > /dev/null 2>&1; then
+    return 0
+  fi
+
+  log_warning "Creating a self-signed placeholder cert."
+  outdir=$(mktemp -d)
+  make-cert nginx "*.$DOMAIN" -o "$outdir" > /dev/null 2>&1
+
+  kubectl create secret tls nginx-tls --namespace "$K8S_NAMESPACE" \
+    --cert="$outdir/nginx.crt" --key="$outdir/nginx.key"
+
+  rm -rf "$outdir"
+}
+
+function render {
+  envsubst "$K8S_TEMPLATE_VARS" < "$STACK_PATH/k8s/$1"
+}
+
+# Usage: build_proxy_hosts <template> <outdir> <services>
+# Services are "scheme:subdomain:host:port", e.g. "https:pihole:pihole-web.pihole-core.svc.cluster.local:443".
+function build_proxy_hosts {
+  local template="$1" outdir="$2" services="$3" svc
+
+  for svc in $services; do
+    UPSTREAM_SCHEME=$(echo "$svc" | cut -d: -f1)
+    SERVICE_DOMAIN=$(echo "$svc" | cut -d: -f2)
+    UPSTREAM_HOST=$(echo "$svc" | cut -d: -f3)
+    UPSTREAM_PORT=$(echo "$svc" | cut -d: -f4)
+
+    export UPSTREAM_SCHEME SERVICE_DOMAIN UPSTREAM_HOST UPSTREAM_PORT
+
+    envsubst '$UPSTREAM_SCHEME $SERVICE_DOMAIN $DOMAIN $UPSTREAM_HOST $UPSTREAM_PORT' \
+      < "$CONFIGS/$template" > "$outdir/$SERVICE_DOMAIN.conf"
+
+    unset UPSTREAM_SCHEME SERVICE_DOMAIN UPSTREAM_HOST UPSTREAM_PORT
+  done
+}
+
+# Usage: build_configs <outdir>
 function build_configs {
-  local svc proxy_host_outdir
+  local outdir="$1"
+
+  mkdir -p "$outdir/proxy_host"
 
   log_info "Generating main Nginx config..."
-  envsubst '$DOMAIN' < "$CONFIGS/nginx.conf.tmpl" > "$CONFIGS/nginx.conf"
-
-  proxy_host_outdir="$CONFIGS/proxy_host"
-  rm -rf "$proxy_host_outdir"
-  mkdir -p "$proxy_host_outdir"
+  envsubst '$DOMAIN' < "$CONFIGS/nginx.conf.tmpl" > "$outdir/nginx.conf"
 
   log_info "Generating proxy_host configs..."
-  for svc in $NGINX_SERVICES; do
-    UPSTREAM_SCHEME=$(echo "$svc" | cut -d: -f1)
-    SERVICE_DOMAIN=$(echo "$svc" | cut -d: -f2)
-    UPSTREAM_IP=$(echo "$svc" | cut -d: -f3)
-    UPSTREAM_PORT=$(echo "$svc" | cut -d: -f4)
-
-    export UPSTREAM_SCHEME SERVICE_DOMAIN UPSTREAM_IP UPSTREAM_PORT
-
-    envsubst '$UPSTREAM_SCHEME $SERVICE_DOMAIN $DOMAIN $UPSTREAM_IP $UPSTREAM_PORT' < "$CONFIGS/service.conf.tmpl" > "$proxy_host_outdir/$SERVICE_DOMAIN.conf"
-
-    unset SERVICE_DOMAIN UPSTREAM_IP UPSTREAM_PORT
-  done
+  build_proxy_hosts service.conf.tmpl "$outdir/proxy_host" "$NGINX_SERVICES"
 
   log_info "Generating proxy_host configs with websockets enabled..."
-  for svc in $NGINX_WS_SERVICES; do
-    UPSTREAM_SCHEME=$(echo "$svc" | cut -d: -f1)
-    SERVICE_DOMAIN=$(echo "$svc" | cut -d: -f2)
-    UPSTREAM_IP=$(echo "$svc" | cut -d: -f3)
-    UPSTREAM_PORT=$(echo "$svc" | cut -d: -f4)
-
-    export UPSTREAM_SCHEME SERVICE_DOMAIN UPSTREAM_IP UPSTREAM_PORT
-
-    envsubst '$UPSTREAM_SCHEME $SERVICE_DOMAIN $DOMAIN $UPSTREAM_IP $UPSTREAM_PORT' < "$CONFIGS/ws_service.conf.tmpl" > "$proxy_host_outdir/$SERVICE_DOMAIN.conf"
-
-    unset SERVICE_DOMAIN UPSTREAM_IP UPSTREAM_PORT
-  done
+  build_proxy_hosts ws_service.conf.tmpl "$outdir/proxy_host" "$NGINX_WS_SERVICES"
 }
 
-# -----------------------------------------------------
-# Commands
-# -----------------------------------------------------
+# Everything that needs a restart when it changes.
+function config {
+  local outdir="$1"
 
-function command_acme_refresh_certs {
-  discover_stack_context
-  run_acme_refresh_certs
-}
-
-function command_acme_deploy_certs {
-  discover_stack_context
-  run_acme_deploy_certs
-}
-
-function command_nginx_sync_proxy_confs {
-  discover_stack_context
-  run_nginx_sync_proxy_confs
-}
-
-# -----------------------------------------------------
-# Nginx functions
-# -----------------------------------------------------
-
-function run_acme_refresh_certs {
-  local node container_id
-
-  for node in $ACME_PRIMARY_FQDN_NODES $ACME_SECONDARY_FQDN_NODES; do
-    container_id=$(docker -H "ssh://$node" ps --filter "name=${STACK}_.*_acme" --filter status=running -q)
-
-    if [[ -z "$container_id" ]]; then
-      log_warning "Couldn't find container ID on $node."
-      continue
-    fi
-
-    log_info "Creating certs on $node."
-    docker -H "ssh://$node" exec "$container_id" acme.sh --issue -d "*.$DOMAIN" --dns dns_cf \
-      --server letsencrypt --deploy-hook docker
-  done
-}
-
-function run_acme_deploy_certs {
-  local node container_id
-
-    for node in $ACME_PRIMARY_FQDN_NODES $ACME_SECONDARY_FQDN_NODES; do
-    container_id=$(docker -H "ssh://$node" ps --filter "name=${STACK}_.*_acme" --filter status=running -q)
-
-    if [[ -z "$container_id" ]]; then
-      log_warning "Couldn't find container ID on $node."
-      continue
-    fi
-
-    log_info "Creating certs on $node."
-    docker -H "ssh://$node" exec "$container_id" acme.sh --deploy -d "*.$DOMAIN" --deploy-hook docker
-  done
-}
-
-function run_nginx_sync_proxy_confs {
-  local src_dir dst_dir node
-  src_dir="$CONFIGS/proxy_host/"
-  dst_dir="/etc/nginx/conf.d/proxy_host/"
-
-  for node in $NGINX_FQDN_NODES; do
-    log_info "Syncing config with $node."
-    ssh "$node" "sudo mkdir -p $dst_dir"
-    rsync -avz --delete --rsync-path="sudo rsync" "$src_dir" "$node:$dst_dir"
-
-    container_id=$(docker -H "ssh://$node" ps --filter "name=${STACK}_.*_nginx" --filter status=running -q)
-
-    # No warning as this runs during every deploy
-    # so it's often expected that nothing is running...
-    if [[ -z "$container_id" ]]; then
-      continue
-    fi
-
-    log_info "Reloading Nginx config..."
-    docker -H "ssh://$node" kill -s HUP "$container_id"
-  done
+  kubectl create configmap nginx-config \
+    --from-file=nginx.conf="$outdir/nginx.conf" \
+    --from-file=logs.conf="$CONFIGS/logs.conf" \
+    --from-file=render-config.sh="$STACK_PATH/k8s/render-config.sh" \
+    --from-file=reload-on-cert-change.sh="$STACK_PATH/k8s/reload-on-cert-change.sh" \
+    --dry-run=client -o yaml
+  echo "---"
+  kubectl create configmap nginx-proxy-hosts --from-file="$outdir/proxy_host/" --dry-run=client -o yaml
 }
 
 # -----------------------------------------------------
 # Override functions
 # -----------------------------------------------------
 
+# Keeps the namespace so the issued cert (nginx-tls), the Let's Encrypt account key and the
+# Certificate survive a redeploy, rather than requesting a new cert every time.
 function run_clean {
-  local primary_confirm secondary_confirm
-
-  log_info "'clean' has been overriden by stack."
-
-  if docker stack ps "${STACK}_primary"; then
-    read -r -p "Teardown primary? [yes/N]: " primary_confirm
-    if [[ "$primary_confirm" == "yes" ]]; then
-      docker stack rm "${STACK}_primary" --detach=false
-    fi
-  fi
-
-  if docker stack ps "${STACK}_secondary"; then
-    read -r -p "Teardown secondary? [yes/N]: " secondary_confirm
-    if [[ "$secondary_confirm" == "yes" ]]; then
-      docker stack rm "${STACK}_secondary" --detach=false
-    fi
-  fi
+  log_info "'clean' has been overridden by stack."
+  log_info "Removing nginx (namespace $K8S_NAMESPACE), keeping the certificate."
+  kubectl delete deployment/nginx service/nginx configmap/nginx-config configmap/nginx-proxy-hosts \
+    --namespace "$K8S_NAMESPACE" --ignore-not-found --wait=true
 }
 
-function run_status {
-  log_info "'status' has been overriden by stack."
+# Deleting the namespace removes the certificate as well.
+function run_purge {
+  log_info "'purge' has been overridden by stack."
+  log_warning "Removing namespace $K8S_NAMESPACE, including the certificate."
+  orchestrator_clean
+  orchestrator_purge
+}
 
-  log_info "Getting primary status."
-  docker stack ps "${STACK}_primary"
+# -----------------------------------------------------
+# Commands
+# -----------------------------------------------------
 
-  log_info "Getting secondary status."
-  docker stack ps "${STACK}_secondary"
+function command_cert_status {
+  discover_stack_context
+
+  if kubectl get certificate wildcard --namespace "$K8S_NAMESPACE" > /dev/null 2>&1; then
+    kubectl describe certificate wildcard --namespace "$K8S_NAMESPACE"
+  else
+    log_warning "No Certificate, nginx is using a self-signed placeholder (see 'deploy')."
+  fi
 }
 
 # -----------------------------------------------------
@@ -175,59 +149,59 @@ function stack_check_env {
 }
 
 function stack_discover {
-  export NGINX_FQDN_NODES="$NGINX_PRIMARY_FQDN_NODES $NGINX_SECONDARY_FQDN_NODES"
-
-  export NGINX_PRIMARY_REPLICAS=$(count "$NGINX_PRIMARY_NODES")
-  export ACME_PRIMARY_REPLICAS=$(count "$ACME_PRIMARY_NODES")
-
-  export NGINX_SECONDARY_REPLICAS=$(count "$NGINX_SECONDARY_NODES")
-  export ACME_SECONDARY_REPLICAS=$(count "$ACME_SECONDARY_NODES")
+  export NGINX_REPLICAS=$(count "$NGINX_NODES")
+  export ACME_EMAIL="${ACME_EMAIL:-${CLOUDFLARE_EMAIL:-}}"
 }
 
 function stack_env {
   echo
-  echo "NGINX IMAGE           = $NGINX_IMAGE"
-  echo "NGINX PRIMARY NODES   = ($NGINX_PRIMARY_REPLICAS)"
-  list "$NGINX_PRIMARY_NODES"
+  echo "NGINX IMAGE = $NGINX_IMAGE"
+  echo "NGINX NODES = ($NGINX_REPLICAS)"
+  list "$NGINX_NODES"
   echo
-  echo "NGINX_SECONDARY_NODES = ($NGINX_SECONDARY_REPLICAS)"
-  list "$NGINX_SECONDARY_NODES"
-  echo
-  echo "NGINX TLS PORT        = $NGINX_TLS_PORT"
-  echo
-  echo "ACME IMAGE = $ACME_IMAGE"
-  echo "ACME PRIMARY NODES    = ($ACME_PRIMARY_REPLICAS)"
-  list "$ACME_PRIMARY_NODES"
-  echo
-  echo "ACME SECONDARY NODES  = ($ACME_SECONDARY_REPLICAS)"
-  list "$ACME_SECONDARY_NODES"
+  echo "NGINX IP    = $NGINX_LB_IP"
+  echo "ACME SERVER = $ACME_SERVER"
   echo
 }
 
 function stack_deploy {
+  local outdir manifests_config
+
   check_stack_context
 
-  log_info "Building and syncing config to all nodes"
-  build_configs
-  run_nginx_sync_proxy_confs
-
-  log_info "Checking if primary and/or secondary need to be deployed..."
-
-  if ! docker stack ps "${STACK}_primary" >/dev/null 2>&1; then
-    log_info "Deploying primary."
-    docker stack deploy --detach=true \
-      -c nginx.yml \
-      -c acme.yml \
-      -c primary.yml \
-      "${STACK}_primary"
+  if (( NGINX_REPLICAS == 0 )); then
+    log_error "No nodes are labelled ${STACK}_nginx."
+    exit 1
   fi
 
-  if ! docker stack ps "${STACK}_secondary" >/dev/null 2>&1; then
-    log_info "Deploying secondary."
-    docker stack deploy --detach=true \
-      -c nginx.yml \
-      -c acme.yml \
-      -c secondary.yml \
-      "${STACK}_secondary"
+  outdir=$(mktemp -d)
+  build_configs "$outdir"
+
+  manifests_config=$(config "$outdir")
+  export NGINX_CONFIG_CHECKSUM=$(sha256sum <<< "$manifests_config" | cut -d' ' -f1)
+
+  if can_issue_cert; then
+    log_info "Deploying the certificate."
+    {
+      kubectl create secret generic cloudflare \
+        --from-literal=api-token="$CLOUDFLARE_API_TOKEN" --dry-run=client -o yaml
+      echo "---"
+      render certificate.yaml
+    } | kubectl apply --namespace "$K8S_NAMESPACE" -f -
   fi
+
+  placeholder_cert
+
+  log_info "Deploying $NGINX_REPLICAS Nginx replica(s) to $K8S_NAMESPACE."
+  {
+    echo "$manifests_config"
+    echo "---"
+    render services.yaml
+    echo "---"
+    render nginx.yaml
+  } | kubectl apply --namespace "$K8S_NAMESPACE" -f -
+
+  rm -rf "$outdir"
+
+  kubectl rollout status deployment/nginx --namespace "$K8S_NAMESPACE" --timeout=10m
 }

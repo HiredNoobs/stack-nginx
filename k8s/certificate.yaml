@@ -1,0 +1,33 @@
+# Wildcard cert from Let's Encrypt using Cloudflare DNS validation, renewed automatically
+# by cert-manager (stack-cert-manager) 30 days before it expires.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: letsencrypt
+spec:
+  acme:
+    server: ${ACME_SERVER}
+    email: ${ACME_EMAIL}
+    privateKeySecretRef:
+      name: letsencrypt-account
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare
+              key: api-token
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wildcard
+spec:
+  secretName: nginx-tls
+  dnsNames:
+    - "*.${DOMAIN}"
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: letsencrypt
+    kind: Issuer

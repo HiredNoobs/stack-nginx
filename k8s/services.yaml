@@ -1,0 +1,24 @@
+# kube-vip (stack-kube-vip) announces the IP from a node running a ready replica and moves
+# it if that replica fails, Local keeps the client IPs for the logs.
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  labels:
+    app.kubernetes.io/name: nginx
+  annotations:
+    kube-vip.io/loadbalancerIPs: "${NGINX_LB_IP}"
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: nginx
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+    - name: https
+      port: 443
+      targetPort: https
+      protocol: TCP
