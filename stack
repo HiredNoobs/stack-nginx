@@ -13,6 +13,8 @@ K8S_TEMPLATE_VARS='$STACK $DOMAIN $NGINX_IMAGE $NGINX_REPLICAS $NGINX_LB_IP $NGI
 function check_stack_context {
   if [[ -z "${NGINX_LB_IP:-}" ]]; then
     log_warning "NGINX_LB_IP isn't set, nginx will only be reachable inside the cluster."
+  else
+    k8s_warn_kube_vip
   fi
 }
 

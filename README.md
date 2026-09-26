@@ -27,7 +27,7 @@ cert-manager issues the `*.$DOMAIN` certificate from Let's Encrypt (`ACME_SERVER
 
 `secrets.env` needs:
 
-- `CLOUDFLARE_API_TOKEN` - with DNS edit permission for the zone.
+- `CLOUDFLARE_API_TOKEN` - with Zone → DNS → Edit and Zone → Zone → Read for the zone.
 - `CLOUDFLARE_EMAIL` (or `ACME_EMAIL`) - optional, the Let's Encrypt account email.
 
 Without cert-manager or the token, `deploy` skips the certificate and creates a self-signed placeholder so nginx still starts. Once both are available the next `deploy` adds the Certificate, cert-manager replaces the placeholder and the pods reload. If cert-manager is taken down (e.g. for an upgrade) the issued certificate stays in place, it just isn't renewed until it's back.
