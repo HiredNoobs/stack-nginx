@@ -10,6 +10,9 @@ server {
 
     http2 on;
 
+    # Uploads, e.g. Vaultwarden attachments and ISOs through the Proxmox UI.
+    client_max_body_size 525M;
+
     access_log /dev/stdout json;
     access_log syslog:server=rsyslog.${DOMAIN},tag=${SERVICE_DOMAIN},severity=info json;
     error_log  syslog:server=rsyslog.${DOMAIN},tag=${SERVICE_DOMAIN},severity=info;
