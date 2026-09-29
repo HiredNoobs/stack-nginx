@@ -16,6 +16,34 @@ function check_stack_context {
   else
     k8s_warn_kube_vip
   fi
+
+  check_authelia
+}
+
+# Services with ':auth' need Authelia (stack-authelia). Without it they return 500 but the
+# rest are fine, so it doesn't stop the deploy.
+function check_authelia {
+  local services host namespace ready
+
+  services=$(auth_services)
+  [[ -z "$services" ]] && return 0
+
+  if [[ "$NGINX_AUTH_ENABLED" == "false" ]]; then
+    log_warning "NGINX_AUTH_ENABLED is false, these services aren't behind Authelia:"
+    list "$services"
+    return 0
+  fi
+
+  # http://authelia.authelia-core.svc.cluster.local:9091 -> authelia-core
+  host="${NGINX_AUTHELIA_URL#*://}"
+  namespace=$(cut -d. -f2 <<< "${host%%:*}")
+
+  ready=$(kubectl get statefulset authelia --namespace "$namespace" -o jsonpath='{.status.readyReplicas}' 2> /dev/null)
+
+  if [[ -z "$ready" || "$ready" -eq 0 ]]; then
+    log_warning "Authelia isn't ready in $namespace, these services will return 500 until it is:"
+    list "$services"
+  fi
 }
 
 # The certificate needs cert-manager (stack-cert-manager) and a Cloudflare token.
@@ -55,22 +83,48 @@ function render {
 }
 
 # Usage: build_proxy_hosts <template> <outdir> <services>
-# Services are "scheme:subdomain:host:port", e.g. "https:pihole:pihole-web.pihole-core.svc.cluster.local:443".
+# Services are "scheme:subdomain:host:port[:auth]", e.g. "https:pihole:pihole-web.pihole-core.svc.cluster.local:443".
+# ':auth' puts the service behind Authelia, unless NGINX_AUTH_ENABLED is "false".
 function build_proxy_hosts {
-  local template="$1" outdir="$2" services="$3" svc
+  local template="$1" outdir="$2" services="$3" svc auth
 
   for svc in $services; do
     UPSTREAM_SCHEME=$(echo "$svc" | cut -d: -f1)
     SERVICE_DOMAIN=$(echo "$svc" | cut -d: -f2)
     UPSTREAM_HOST=$(echo "$svc" | cut -d: -f3)
     UPSTREAM_PORT=$(echo "$svc" | cut -d: -f4)
+    auth=$(echo "$svc" | cut -d: -f5 -s)
 
-    export UPSTREAM_SCHEME SERVICE_DOMAIN UPSTREAM_HOST UPSTREAM_PORT
+    AUTH_LOCATION=""
+    AUTH_REQUEST=""
 
-    envsubst '$UPSTREAM_SCHEME $SERVICE_DOMAIN $DOMAIN $UPSTREAM_HOST $UPSTREAM_PORT' \
+    if [[ "$auth" == "auth" ]]; then
+      if [[ "$NGINX_AUTH_ENABLED" != "false" ]]; then
+        AUTH_LOCATION="include /etc/nginx/snippets/authelia-location.conf;"
+        AUTH_REQUEST="include /etc/nginx/snippets/authelia-authrequest.conf;"
+      fi
+    elif [[ -n "$auth" ]]; then
+      log_error "Unknown option '$auth' for $SERVICE_DOMAIN, the only option is 'auth'."
+      exit 1
+    fi
+
+    export UPSTREAM_SCHEME SERVICE_DOMAIN UPSTREAM_HOST UPSTREAM_PORT AUTH_LOCATION AUTH_REQUEST
+
+    envsubst '$UPSTREAM_SCHEME $SERVICE_DOMAIN $DOMAIN $UPSTREAM_HOST $UPSTREAM_PORT $AUTH_LOCATION $AUTH_REQUEST' \
       < "$CONFIGS/$template" > "$outdir/$SERVICE_DOMAIN.conf"
 
-    unset UPSTREAM_SCHEME SERVICE_DOMAIN UPSTREAM_HOST UPSTREAM_PORT
+    unset UPSTREAM_SCHEME SERVICE_DOMAIN UPSTREAM_HOST UPSTREAM_PORT AUTH_LOCATION AUTH_REQUEST
+  done
+}
+
+# Prints the subdomains of the services with ':auth'.
+function auth_services {
+  local svc
+
+  for svc in $NGINX_SERVICES $NGINX_WS_SERVICES; do
+    if [[ "$(echo "$svc" | cut -d: -f5 -s)" == "auth" ]]; then
+      echo "$svc" | cut -d: -f2
+    fi
   done
 }
 
@@ -82,6 +136,7 @@ function build_configs {
 
   log_info "Generating main Nginx config..."
   envsubst '$DOMAIN' < "$CONFIGS/nginx.conf.tmpl" > "$outdir/nginx.conf"
+  envsubst '$NGINX_AUTHELIA_URL' < "$CONFIGS/authelia-location.conf.tmpl" > "$outdir/authelia-location.conf"
 
   log_info "Generating proxy_host configs..."
   build_proxy_hosts service.conf.tmpl "$outdir/proxy_host" "$NGINX_SERVICES"
@@ -97,6 +152,8 @@ function config {
   kubectl create configmap nginx-config \
     --from-file=nginx.conf="$outdir/nginx.conf" \
     --from-file=logs.conf="$CONFIGS/logs.conf" \
+    --from-file=authelia-location.conf="$outdir/authelia-location.conf" \
+    --from-file=authelia-authrequest.conf="$CONFIGS/authelia-authrequest.conf" \
     --from-file=render-config.sh="$STACK_PATH/k8s/render-config.sh" \
     --from-file=reload-on-cert-change.sh="$STACK_PATH/k8s/reload-on-cert-change.sh" \
     --dry-run=client -o yaml
@@ -163,6 +220,10 @@ function stack_env {
   echo
   echo "NGINX IP    = $NGINX_LB_IP"
   echo "ACME SERVER = $ACME_SERVER"
+  echo
+  echo "AUTHELIA    = $NGINX_AUTHELIA_URL (enabled: $NGINX_AUTH_ENABLED)"
+  echo "AUTH        = ($(auth_services | wc -l))"
+  list "$(auth_services)"
   echo
 }
 

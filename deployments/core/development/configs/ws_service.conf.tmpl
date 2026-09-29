@@ -17,10 +17,16 @@ server {
     access_log syslog:server=rsyslog.${DOMAIN},tag=${SERVICE_DOMAIN},severity=info json;
     error_log  syslog:server=rsyslog.${DOMAIN},tag=${SERVICE_DOMAIN},severity=info;
 
+    # Authelia, only for services with ':auth', see authelia-location.conf.
+    ${AUTH_LOCATION}
+
     location / {
         # A variable makes nginx resolve the upstream per request, see the resolver in nginx.conf.
         set $upstream ${UPSTREAM_SCHEME}://${UPSTREAM_HOST}:${UPSTREAM_PORT};
         proxy_pass $upstream;
+
+        # Authelia, only for services with ':auth', see authelia-authrequest.conf.
+        ${AUTH_REQUEST}
 
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;

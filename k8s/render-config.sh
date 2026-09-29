@@ -10,6 +10,10 @@ CONFIGS="/etc/nginx/nginx.conf /etc/nginx/conf.d/proxy_host/*.conf"
 cp "$SRC/config/nginx.conf" /etc/nginx/nginx.conf
 cp "$SRC/config/logs.conf" /etc/nginx/conf.d/logs.conf
 
+# Included by services with ':auth'.
+mkdir -p /etc/nginx/snippets
+cp "$SRC"/config/authelia-*.conf /etc/nginx/snippets/
+
 rm -rf /etc/nginx/conf.d/proxy_host
 mkdir -p /etc/nginx/conf.d/proxy_host
 for conf in "$SRC"/proxy_host/*.conf; do

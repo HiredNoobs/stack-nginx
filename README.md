@@ -21,6 +21,22 @@ Upstreams are resolved when a request is made (through CoreDNS), so a host that 
 https:pihole:pihole-web.pihole-core.svc.cluster.local:443
 ```
 
+## Authelia
+
+Adding `:auth` to a service puts it behind Authelia (`stack-authelia`), e.g.:
+
+```text
+http:homepage:homepage.homepage-core.svc.cluster.local:3000:auth
+```
+
+Each request is checked with Authelia (`NGINX_AUTHELIA_URL`) first, anyone not logged in is sent to `auth.$DOMAIN` and back again afterwards. Who gets in is decided by Authelia's access control rules. The user is passed on to the service as `Remote-User`, `Remote-Groups`, `Remote-Name` and `Remote-Email`.
+
+The snippets are `configs/authelia-location.conf.tmpl` and `configs/authelia-authrequest.conf`, from [Authelia's nginx docs](https://www.authelia.com/integration/proxies/nginx/).
+
+Authelia is resolved per request like the upstreams, so nginx starts without it. While it's down, services with `:auth` return 500 and the rest carry on. `deploy` warns if it isn't ready.
+
+If Authelia breaks, set `NGINX_AUTH_ENABLED="false"` and deploy, every service is deployed without it until it's set back.
+
 ## Certificate
 
 cert-manager issues the `*.$DOMAIN` certificate from Let's Encrypt (`ACME_SERVER`) using Cloudflare DNS validation and renews it 30 days before it expires. Each pod reloads nginx when the renewed certificate appears (`k8s/reload-on-cert-change.sh`).
