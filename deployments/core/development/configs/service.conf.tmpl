@@ -11,8 +11,8 @@ server {
     http2 on;
 
     access_log /dev/stdout json;
-    access_log syslog:server=rsyslog.${DOMAIN},tag=${SERVICE_DOMAIN},severity=info json;
-    error_log  syslog:server=rsyslog.${DOMAIN},tag=${SERVICE_DOMAIN},severity=info;
+    access_log syslog:server=rsyslog.${DOMAIN},tag=${SYSLOG_TAG},severity=info json;
+    error_log  syslog:server=rsyslog.${DOMAIN},tag=${SYSLOG_TAG},severity=info;
 
     # Authelia, only for services with ':auth', see authelia-location.conf.
     ${AUTH_LOCATION}

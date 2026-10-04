@@ -91,6 +91,8 @@ function build_proxy_hosts {
   for svc in $services; do
     UPSTREAM_SCHEME=$(echo "$svc" | cut -d: -f1)
     SERVICE_DOMAIN=$(echo "$svc" | cut -d: -f2)
+    # nginx syslog tags only allow alphanumerics and underscores.
+    SYSLOG_TAG="${SERVICE_DOMAIN//[^A-Za-z0-9_]/_}"
     UPSTREAM_HOST=$(echo "$svc" | cut -d: -f3)
     UPSTREAM_PORT=$(echo "$svc" | cut -d: -f4)
     auth=$(echo "$svc" | cut -d: -f5 -s)
@@ -108,12 +110,12 @@ function build_proxy_hosts {
       exit 1
     fi
 
-    export UPSTREAM_SCHEME SERVICE_DOMAIN UPSTREAM_HOST UPSTREAM_PORT AUTH_LOCATION AUTH_REQUEST
+    export UPSTREAM_SCHEME SERVICE_DOMAIN SYSLOG_TAG UPSTREAM_HOST UPSTREAM_PORT AUTH_LOCATION AUTH_REQUEST
 
-    envsubst '$UPSTREAM_SCHEME $SERVICE_DOMAIN $DOMAIN $UPSTREAM_HOST $UPSTREAM_PORT $AUTH_LOCATION $AUTH_REQUEST' \
+    envsubst '$UPSTREAM_SCHEME $SERVICE_DOMAIN $SYSLOG_TAG $DOMAIN $UPSTREAM_HOST $UPSTREAM_PORT $AUTH_LOCATION $AUTH_REQUEST' \
       < "$CONFIGS/$template" > "$outdir/$SERVICE_DOMAIN.conf"
 
-    unset UPSTREAM_SCHEME SERVICE_DOMAIN UPSTREAM_HOST UPSTREAM_PORT AUTH_LOCATION AUTH_REQUEST
+    unset UPSTREAM_SCHEME SERVICE_DOMAIN SYSLOG_TAG UPSTREAM_HOST UPSTREAM_PORT AUTH_LOCATION AUTH_REQUEST
   done
 }
 
